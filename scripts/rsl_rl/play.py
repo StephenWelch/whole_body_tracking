@@ -141,17 +141,33 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # obtain the trained policy for inference
     policy = ppo_runner.get_inference_policy(device=env.unwrapped.device)
 
+    # extract the neural network module
+    # we do this in a try-except to maintain backwards compatibility.
+    try:
+        # version 2.3 onwards
+        policy_nn = ppo_runner.alg.policy
+    except AttributeError:
+        # version 2.2 and below
+        policy_nn = ppo_runner.alg.actor_critic
+
+    if hasattr(policy_nn, "actor_obs_normalizer"):
+        normalizer = policy_nn.actor_obs_normalizer
+    elif hasattr(policy_nn, "student_obs_normalizer"):
+        normalizer = policy_nn.student_obs_normalizer
+    else:
+        normalizer = None
+
     # export policy to onnx/jit
     export_model_dir = os.path.join(os.path.dirname(resume_path), "exported")
-
     export_motion_policy_as_onnx(
         env.unwrapped,
         ppo_runner.alg.policy,
-        normalizer=ppo_runner.obs_normalizer,
+        normalizer=normalizer,
         path=export_model_dir,
         filename="policy.onnx",
     )
     attach_onnx_metadata(env.unwrapped, args_cli.wandb_path if args_cli.wandb_path else "none", export_model_dir)
+    
     # reset environment
     obs, _ = env.get_observations()
     timestep = 0
